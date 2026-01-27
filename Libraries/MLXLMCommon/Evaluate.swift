@@ -838,7 +838,9 @@ public func generate(
 
         var tokenCount = 0
         var detokenizer = NaiveStreamingDetokenizer(tokenizer: context.tokenizer)
-        let toolCallProcessor = ToolCallProcessor()
+        let toolCallProcessor = ToolCallProcessor(
+            format: context.configuration.toolCallFormat ?? .json
+        )
 
         for token in iterator {
 
