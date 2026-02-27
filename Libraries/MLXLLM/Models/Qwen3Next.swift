@@ -13,16 +13,16 @@ import MLXFast
 
 // MARK: - Gated Delta Helpers
 
-private func sigmoidMultiply(_ x: MLXArray, _ gate: MLXArray) -> MLXArray {
+func sigmoidMultiply(_ x: MLXArray, _ gate: MLXArray) -> MLXArray {
     x * sigmoid(gate)
 }
 
-private func computeGatedDeltaG(_ aLog: MLXArray, _ a: MLXArray, _ dtBias: MLXArray) -> MLXArray {
+func computeGatedDeltaG(_ aLog: MLXArray, _ a: MLXArray, _ dtBias: MLXArray) -> MLXArray {
     let decay = exp(-exp(aLog.asType(.float32)) * softplus(a + dtBias))
     return decay.asType(aLog.dtype)
 }
 
-private func gatedDeltaStepOps(
+func gatedDeltaStepOps(
     q: MLXArray,
     k: MLXArray,
     v: MLXArray,
@@ -64,7 +64,7 @@ private func gatedDeltaStepOps(
     return (y, state)
 }
 
-private func gatedDeltaOps(
+func gatedDeltaOps(
     q: MLXArray,
     k: MLXArray,
     v: MLXArray,
@@ -119,7 +119,7 @@ private func gatedDeltaOps(
     return (y, state)
 }
 
-private func gatedDeltaUpdate(
+func gatedDeltaUpdate(
     q: MLXArray,
     k: MLXArray,
     v: MLXArray,
