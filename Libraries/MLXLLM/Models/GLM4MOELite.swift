@@ -110,7 +110,7 @@ class QuantizedMultiLinear: Module, Quantized {
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         // Use quantizedMM for efficient quantized matrix multiplication
         // The weight is in shape [numHeads, outputDims, inputDims(packed)]
-        return quantizedMM(
+        return quantizedMatmul(
             x,
             weight,
             scales: scales,
@@ -271,8 +271,8 @@ class GLM4MoELiteAttention: Module {
         var kvLatent = kvALayerNorm(compressedKv)
 
         let offset = cache?.offset ?? 0
-        qPe = rope(qPe, offset: offset)
-        kPe = rope(kPe, offset: offset)
+        qPe = applyRoPE(qPe, offset: offset)
+        kPe = applyRoPE(kPe, offset: offset)
 
         // Expand kvLatent for attention: [B, L, kvLoraRank] -> [B, 1, L, kvLoraRank]
         kvLatent = expandedDimensions(kvLatent, axis: 1)
