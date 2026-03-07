@@ -10,6 +10,7 @@ import Foundation
 import MLX
 import MLXLMCommon
 import MLXNN
+import MLXFast
 
 class GLM4MoELiteAttention: Module {
     let config: GLM4MoELiteConfiguration
@@ -25,7 +26,7 @@ class GLM4MoELiteAttention: Module {
     let qHeadDim: Int
     var scale: Float
 
-    let rope: OffsetLayer
+    let rope: Module
     @ModuleInfo(key: "q_proj") var qProj: Linear?
     @ModuleInfo(key: "q_a_proj") var qAProj: Linear?
     @ModuleInfo(key: "q_a_layernorm") var qALayerNorm: RMSNorm?
@@ -131,11 +132,11 @@ class GLM4MoELiteAttention: Module {
         let values = splitKv[1]
 
         if let cache {
-            qPe = rope(qPe, offset: cache.offset)
-            kPe = rope(kPe, offset: cache.offset)
+            qPe = applyRoPE(qPe, offset: cache.offset)
+            kPe = applyRoPE(kPe, offset: cache.offset)
         } else {
-            qPe = rope(qPe, offset: 0)
-            kPe = rope(kPe, offset: 0)
+            qPe = applyRoPE(qPe, offset: 0)
+            kPe = applyRoPE(kPe, offset: 0)
         }
         kPe = repeated(kPe, count: numHeads, axis: 1)
 
