@@ -101,6 +101,20 @@ class GLM4MoELiteAttention: Module {
         )
     }
 
+    if let ropeModule = rope as? RoPE {
+            return ropeModule(x, offset: offset)
+        } else if let llama3Rope = rope as? Llama3RoPE {
+            return llama3Rope(x, offset: offset)
+        } else if let yarnRope = rope as? YarnRoPE {
+            return yarnRope(x, offset: offset)
+        } else if let suScaledRope = rope as? SuScaledRoPE {
+            return suScaledRope(x, offset: offset)
+        }  else if let basicRope = rope as? RoPE {
+            return basicRope(x, offset: offset ?? 0)
+        }
+        return x
+    }
+
     func callAsFunction(
         _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?
     ) -> MLXArray {
