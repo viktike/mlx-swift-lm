@@ -4,6 +4,7 @@ import Foundation
 import MLX
 import MLXLMCommon
 import MLXNN
+import MLXFast
 
 final class MiniCPMAttention: Module {
     let args: MiniCPMConfiguration
@@ -14,7 +15,7 @@ final class MiniCPMAttention: Module {
     @ModuleInfo(key: "v_proj") var wv: Linear
     @ModuleInfo(key: "o_proj") var wo: Linear
 
-    let rope: OffsetLayer
+    let rope: Module
 
     init(_ args: MiniCPMConfiguration) {
         self.args = args
@@ -41,6 +42,21 @@ final class MiniCPMAttention: Module {
         super.init()
     }
 
+    private func applyRoPE(_ x: MLXArray, offset: Int) -> MLXArray {
+        if let ropeModule = rope as? RoPE {
+            return ropeModule(x, offset: offset)
+        } else if let llama3Rope = rope as? Llama3RoPE {
+            return llama3Rope(x, offset: offset)
+        } else if let yarnRope = rope as? YarnRoPE {
+            return yarnRope(x, offset: offset)
+        } else if let suScaledRope = rope as? SuScaledRoPE {
+            return suScaledRope(x, offset: offset)
+        }  else if let basicRope = rope as? RoPE {
+            return basicRope(x, offset: offset ?? 0)
+        }
+        return x
+    }
+
     func callAsFunction(
         _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?
     ) -> MLXArray {
@@ -55,8 +71,8 @@ final class MiniCPMAttention: Module {
         values = values.reshaped(B, L, args.kvHeads, -1).transposed(0, 2, 1, 3)
 
         let offset = cache?.offset ?? 0
-        queries = rope(queries, offset: offset)
-        keys = rope(keys, offset: offset)
+        queries = applyRoPE(queries, offset: offset)
+        keys = applyRoPE(keys, offset: offset)
 
         let output = attentionWithCacheUpdate(
             queries: queries,
