@@ -3,6 +3,7 @@
 import CoreGraphics
 import Foundation
 import MLX
+import Tokenizers
 
 /// Simplified API for multi-turn conversations with LLMs and VLMs.
 ///
@@ -31,6 +32,7 @@ public final class ChatSession {
     private let processing: UserInput.Processing
     private let generateParameters: GenerateParameters
     private let additionalContext: [String: any Sendable]?
+    public var tools: [ToolSpec]?
 
     /// Initialize the `ChatSession`.
     ///
@@ -45,6 +47,7 @@ public final class ChatSession {
         instructions: String? = nil,
         generateParameters: GenerateParameters = .init(),
         processing: UserInput.Processing = .init(resize: CGSize(width: 512, height: 512)),
+        tools: [ToolSpec]? = nil,
         additionalContext: [String: any Sendable]? = nil
     ) {
         self.model = .container(model)
@@ -52,6 +55,7 @@ public final class ChatSession {
         self.cache = []
         self.processing = processing
         self.generateParameters = generateParameters
+        self.tools = tools
         self.additionalContext = additionalContext
     }
 
@@ -68,6 +72,7 @@ public final class ChatSession {
         instructions: String? = nil,
         generateParameters: GenerateParameters = .init(),
         processing: UserInput.Processing = .init(resize: CGSize(width: 512, height: 512)),
+        tools: [ToolSpec]? = nil,
         additionalContext: [String: any Sendable]? = nil
     ) {
         self.model = .context(model)
@@ -75,6 +80,7 @@ public final class ChatSession {
         self.cache = []
         self.processing = processing
         self.generateParameters = generateParameters
+        self.tools = tools
         self.additionalContext = additionalContext
     }
 
@@ -93,6 +99,7 @@ public final class ChatSession {
         history: [Chat.Message],
         generateParameters: GenerateParameters = .init(),
         processing: UserInput.Processing = .init(resize: CGSize(width: 512, height: 512)),
+        tools: [ToolSpec]? = nil,
         additionalContext: [String: any Sendable]? = nil
     ) {
         self.init(
@@ -100,6 +107,7 @@ public final class ChatSession {
             instructions: nil,
             generateParameters: generateParameters,
             processing: processing,
+            tools: tools,
             additionalContext: additionalContext
         )
         self.messages = history
@@ -120,6 +128,7 @@ public final class ChatSession {
         history: [Chat.Message],
         generateParameters: GenerateParameters = .init(),
         processing: UserInput.Processing = .init(resize: CGSize(width: 512, height: 512)),
+        tools: [ToolSpec]? = nil,
         additionalContext: [String: any Sendable]? = nil
     ) {
         self.init(
@@ -127,6 +136,7 @@ public final class ChatSession {
             instructions: nil,
             generateParameters: generateParameters,
             processing: processing,
+            tools: tools,
             additionalContext: additionalContext
         )
         self.messages = history
@@ -148,7 +158,7 @@ public final class ChatSession {
 
         func generate(context: ModelContext) async throws -> String {
             let userInput = UserInput(
-                chat: messages, processing: processing, additionalContext: additionalContext)
+                chat: messages, processing: processing, tools: tools, additionalContext: additionalContext)
             let input = try await context.processor.prepare(input: userInput)
 
             if cache.isEmpty {
@@ -265,7 +275,7 @@ public final class ChatSession {
     ) async throws {
         func stream(context: ModelContext) async throws {
             let userInput = UserInput(
-                chat: messages, processing: processing, additionalContext: additionalContext)
+                chat: messages, processing: processing, tools: tools, additionalContext: additionalContext)
             let input = try await context.processor.prepare(input: userInput)
 
             if cache.isEmpty {
