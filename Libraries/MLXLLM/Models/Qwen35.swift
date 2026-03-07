@@ -226,21 +226,6 @@ final class Qwen35GatedDeltaNet: Module {
         super.init()
     }
 
-    private func applyRoPE(_ x: MLXArray, offset: Int) -> MLXArray {
-        if let ropeModule = rope as? RoPE {
-            return ropeModule(x, offset: offset)
-        } else if let llama3Rope = rope as? Llama3RoPE {
-            return llama3Rope(x, offset: offset)
-        } else if let yarnRope = rope as? YarnRoPE {
-            return yarnRope(x, offset: offset)
-        } else if let suScaledRope = rope as? SuScaledRoPE {
-            return suScaledRope(x, offset: offset)
-        }  else if let basicRope = rope as? RoPE {
-            return basicRope(x, offset: offset ?? 0)
-        }
-        return x
-    }
-
     func callAsFunction(
         _ inputs: MLXArray,
         mask: MLXArray? = nil,
@@ -351,6 +336,21 @@ final class Qwen35Attention: Module {
         )
 
         super.init()
+    }
+
+    private func applyRoPE(_ x: MLXArray, offset: Int) -> MLXArray {
+        if let ropeModule = rope as? RoPE {
+            return ropeModule(x, offset: offset)
+        } else if let llama3Rope = rope as? Llama3RoPE {
+            return llama3Rope(x, offset: offset)
+        } else if let yarnRope = rope as? YarnRoPE {
+            return yarnRope(x, offset: offset)
+        } else if let suScaledRope = rope as? SuScaledRoPE {
+            return suScaledRope(x, offset: offset)
+        }  else if let basicRope = rope as? RoPE {
+            return basicRope(x, offset: offset ?? 0)
+        }
+        return x
     }
 
     func callAsFunction(
