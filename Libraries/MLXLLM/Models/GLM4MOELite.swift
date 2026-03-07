@@ -101,7 +101,8 @@ class GLM4MoELiteAttention: Module {
         )
     }
 
-    if let ropeModule = rope as? RoPE {
+    private func applyRoPE(_ x: MLXArray, offset: Int) -> MLXArray {
+        if let ropeModule = rope as? RoPE {
             return ropeModule(x, offset: offset)
         } else if let llama3Rope = rope as? Llama3RoPE {
             return llama3Rope(x, offset: offset)
