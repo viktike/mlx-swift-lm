@@ -10,6 +10,7 @@
 import Foundation
 import MLX
 import MLXLMCommon
+import MLXLLM // SwitchGLU
 import MLXNN
 
 private enum Qwen35VLError: Error {
