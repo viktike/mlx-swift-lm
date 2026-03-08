@@ -99,7 +99,7 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
                 startTag: "<|tool_call_start|>", endTag: "<|tool_call_end|>")
         case .xmlFunction:
             return XMLFunctionParser()
-        case .nemotron
+        case .nemotron:
             return XMLFunctionParser(startTag: "<tool_call>", endTag: "</tool_call>")
         case .glm4:
             return GLM4ToolCallParser()
