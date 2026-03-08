@@ -873,6 +873,12 @@ public func generate(
             }
         }
 
+        toolCallProcessor.flush()
+        let pendingToolCalls = toolCallProcessor.toolCalls
+        for toolCall in pendingToolCalls {
+            continuation.yield(.toolCall(toolCall))
+        }
+
         let now = Date.timeIntervalSinceReferenceDate
         let generateTime = now - start
 
