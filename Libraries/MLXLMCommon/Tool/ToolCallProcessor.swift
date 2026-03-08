@@ -26,9 +26,9 @@ public class ToolCallProcessor {
 
     // MARK: - Properties
 
-    private let parser: any ToolCallParser
+    let parser: any ToolCallParser
     private let tools: [[String: any Sendable]]?
-    private var state = State.normal
+    var state = State.normal
     private var toolCallBuffer = ""
 
     /// The tool calls extracted during processing.
@@ -36,7 +36,7 @@ public class ToolCallProcessor {
 
     // MARK: - State Enum
 
-    private enum State {
+    enum State {
         case normal
         case potentialToolCall
         case collectingToolCall

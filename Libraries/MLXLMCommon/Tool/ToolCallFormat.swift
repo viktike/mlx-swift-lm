@@ -74,6 +74,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `[TOOL_CALLS]get_weather [ARGS]{"location": "Tokyo"}`
     case mistral
 
+    /// OpenAI Harmony format with channel-based tool dispatch.
+    /// Example: `<|start|>assistant<|channel|>commentary to=functions.name <|constrain|>json<|message|>{...}<|call|>`
+    case harmony
+
     // MARK: - Factory Methods
 
     /// Create the appropriate parser for this format.
@@ -97,6 +101,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return MiniMaxM2ToolCallParser()
         case .mistral:
             return MistralToolCallParser()
+        case .harmony:
+            return HarmonyToolCallParser()
         case .qwen35:
             return XMLFunctionParser(startTag: "<tool_call>", endTag: "</tool_call>")
         }
@@ -122,6 +128,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return .glm4
         }
 
+        if type.hasPrefix("gpt_oss") {
+            return .harmony
+        }
+
         // Mistral3 family (mistral3, mistral3_text, etc.)
         if type.hasPrefix("mistral3") {
             return .mistral
@@ -135,11 +145,6 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
         // Gemma
         if type == "gemma" {
             return .gemma
-        }
-
-        // Qwen3.5 family (qwen3_5, qwen3_5_moe, etc.)
-        if type.hasPrefix("qwen3_5") {
-            return .qwen35
         }
 
         return nil
