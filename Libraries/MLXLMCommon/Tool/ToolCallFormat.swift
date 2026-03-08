@@ -50,6 +50,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `<function=name><parameter=key>value</parameter></function>`
     case xmlFunction = "xml_function"
 
+    /// XML nemotron nano.
+    /// Example: `<tool_call><function=name><parameter=key>value</parameter></function></tool_call>`
+    case nemotron
+
     /// GLM4 format with arg_key/arg_value tags.
     /// Example: `func<arg_key>k</arg_key><arg_value>v</arg_value>`
     case glm4
@@ -95,6 +99,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
                 startTag: "<|tool_call_start|>", endTag: "<|tool_call_end|>")
         case .xmlFunction:
             return XMLFunctionParser()
+        case .nemotron
+            return XMLFunctionParser(startTag: "<tool_call>", endTag: "</tool_call>")
         case .glm4:
             return GLM4ToolCallParser()
         case .gemma:
@@ -146,6 +152,11 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
         // Qwen3.5 family (qwen3_5, qwen3_5_moe, etc.)
         if type.hasPrefix("qwen3_5") {
             return .qwen35
+        }
+
+        // NVIDIA Nemotron
+        if type.hasPrefix("nemotron") {
+            return .nemotron
         }
 
         // Gemma3
