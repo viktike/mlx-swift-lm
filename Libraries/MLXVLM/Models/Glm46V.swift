@@ -670,14 +670,14 @@ private class PixelUnshuffleBlock: Module, UnaryLayer {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         var x = x
-        var (n, w, h, c) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
+        var (n, h, w, c) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
 
         // Pad width if necessary
         if w % factor != 0 {
             let padW = factor - (w % factor)
             let padding = MLXArray.zeros([n, padW, h, c], dtype: x.dtype)
             x = concatenated([x, padding], axis: 1)
-            (n, w, h, c) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
+            (n, h, w, c) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
         }
 
         // Pad height if necessary
@@ -685,7 +685,7 @@ private class PixelUnshuffleBlock: Module, UnaryLayer {
             let padH = factor - (h % factor)
             let padding = MLXArray.zeros([n, w, padH, c], dtype: x.dtype)
             x = concatenated([x, padding], axis: 2)
-            (n, w, h, c) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
+            (n, h, w, c) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
         }
 
         x = x.reshaped(n, w, h / factor, c * factor)
