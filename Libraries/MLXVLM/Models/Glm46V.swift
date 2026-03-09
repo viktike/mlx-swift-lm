@@ -1202,11 +1202,33 @@ public struct Glm46VConfiguration: Codable, Sendable {
         public let modelType: String
         public let hiddenSize: Int
         public let numHiddenLayers: Int
-        public let numHeads: Int
-        public let kvHeads: Int
+
+        // Support for "num_attention_heads" and "num_key_value_heads" with aliasing
+        private let _numHeads: Int?
+        private let _numAttentionHeads: Int?
+        public var numHeads: Int {
+            if let numHeads = _numHeads { return numHeads }
+            if let numAttnHeads = _numAttentionHeads { return numAttnHeads }
+            return 1
+        }
+
+        private let _kvHeads: Int?
+        private let _numKeyValueHeads: Int?
+        public var kvHeads: Int {
+            if let kvHeads = _kvHeads { return kvHeads }
+            if let numKVHeads = _numKeyValueHeads { return numKVHeads }
+            return 1
+        }
+
         public let vocabularySize: Int
+
+        // Support rms_norm_eps (alias for norm_eps)
+        private let _rmsNormEps: Float?
         private let _normEps: Float?
-        public var normEps: Float { _normEps ?? 1e-5 }
+        public var normEps: Float {
+            _rmsNormEps ?? _normEps ?? 1e-5
+        }
+
         private let _convBias: Bool?
         public var convBias: Bool { _convBias ?? false }
         private let _convLCache: Int?
@@ -1221,6 +1243,8 @@ public struct Glm46VConfiguration: Codable, Sendable {
         public var blockFFNDimMultiplier: Float { _blockFFNDimMultiplier ?? 1.0 }
         private let _blockAutoAdjustFFDim: Bool?
         public var blockAutoAdjustFFDim: Bool { _blockAutoAdjustFFDim ?? true }
+
+        // fullAttnIdxs support with fallback to layer_types
         private let _fullAttnIdxs: [Int]?
         private let layerTypes: [String]?
         public var fullAttnIdxs: [Int] {
@@ -1236,8 +1260,17 @@ public struct Glm46VConfiguration: Codable, Sendable {
 
             return Array(0 ..< numHiddenLayers)
         }
+
+        // Rope parameters support: may be in a dictionary
         private let _ropeTheta: Float?
-        public var ropeTheta: Float { _ropeTheta ?? 1000000.0 }
+        private let ropeParameters: [String: Float]?
+        public var ropeTheta: Float {
+            if let ropeParams = ropeParameters, let theta = ropeParams["theta"] {
+                return theta
+            }
+            return _ropeTheta ?? 1_000_000.0
+        }
+
         private let _hiddenAct: String?
         public var hiddenAct: String { _hiddenAct ?? "gelu" }
         private let _dropout: Float?
@@ -1247,24 +1280,39 @@ public struct Glm46VConfiguration: Codable, Sendable {
         private let _useFlashAttention: Bool?
         public var useFlashAttention: Bool { _useFlashAttention ?? true }
 
+        // Additional fields or aliases can be added here as needed.
+
         enum CodingKeys: String, CodingKey {
             case modelType = "model_type"
             case hiddenSize = "hidden_size"
             case numHiddenLayers = "num_hidden_layers"
-            case numHeads = "num_heads"
-            case kvHeads = "num_kv_heads"
+
+            case _numHeads = "num_heads"
+            case _numAttentionHeads = "num_attention_heads"
+
+            case _kvHeads = "num_kv_heads"
+            case _numKeyValueHeads = "num_key_value_heads"
+
             case vocabularySize = "vocab_size"
+
+            case _rmsNormEps = "rms_norm_eps"
             case _normEps = "norm_eps"
+
             case _convBias = "conv_bias"
             case _convLCache = "conv_l_cache"
+
             case _blockDim = "block_dim"
             case _blockFFDim = "block_ff_dim"
             case _blockMultipleOf = "block_multiple_of"
             case _blockFFNDimMultiplier = "block_ffn_dim_multiplier"
             case _blockAutoAdjustFFDim = "block_auto_adjust_ff_dim"
+
             case _fullAttnIdxs = "full_attn_idxs"
             case layerTypes = "layer_types"
+
             case _ropeTheta = "rope_theta"
+            case ropeParameters = "rope_parameters"
+
             case _hiddenAct = "hidden_act"
             case _dropout = "dropout"
             case _attentionDropout = "attention_dropout"
@@ -1275,19 +1323,44 @@ public struct Glm46VConfiguration: Codable, Sendable {
     public struct VisionConfiguration: Codable, Sendable {
         public let modelType: String
         public let hiddenSize: Int
-        public let intermediateSize: Int
+
+        // Add intermediateSize to match HuggingFace config naming
+        private let _intermediateSize: Int?
+        public var intermediateSize: Int { _intermediateSize ?? hiddenSize }
+
         public let depth: Int
-        public let numHeads: Int
+
+        // Support for "num_heads" and "num_attention_heads"
+        private let _numHeads: Int?
+        private let _numAttentionHeads: Int?
+        public var numHeads: Int {
+            if let numHeads = _numHeads { return numHeads }
+            if let numAttnHeads = _numAttentionHeads { return numAttnHeads }
+            return 1
+        }
+
+        // Number of channels may be named in HF config as "in_channels" or "num_channels"
         private let _numChannels: Int?
-        public var numChannels: Int { _numChannels ?? 3 }
+        private let _inChannels: Int?
+
+        public var numChannels: Int { _numChannels ?? _inChannels ?? 3 }
+
         private let _imageSize: Int?
         public var imageSize: Int { _imageSize ?? 224 }
+
         private let _patchSize: Int?
         public var patchSize: Int { _patchSize ?? 16 }
+
         private let _numPatches: Int?
         public var numPatches: Int { _numPatches ?? 196 }
+
+        // LayerNorm epsilon support: rms_norm_eps or norm_eps
+        private let _rmsNormEps: Float?
         private let _layerNormEps: Float?
-        public var layerNormEps: Float { _layerNormEps ?? 1e-6 }
+        public var layerNormEps: Float {
+            _rmsNormEps ?? _layerNormEps ?? 1e-6
+        }
+
         private let _hiddenAct: String?
         public var hiddenAct: String { _hiddenAct ?? "gelu" }
         private let _dropout: Float?
@@ -1297,68 +1370,124 @@ public struct Glm46VConfiguration: Codable, Sendable {
         private let _useFlashAttention: Bool?
         public var useFlashAttention: Bool { _useFlashAttention ?? true }
 
+        // Additional fields from HuggingFace config
+
+        // out_hidden_size: TODO/FIXME: used for some model variant, not yet used here
+        private let _outHiddenSize: Int?
+        public var outHiddenSize: Int? { _outHiddenSize }
+
+        // spatial_merge_size: TODO/FIXME: used for some spatial merging, not yet used here
+        private let _spatialMergeSize: Int?
+        public var spatialMergeSize: Int? { _spatialMergeSize }
+
+        // temporal_patch_size: optional temporal patch size for video models
+        private let _temporalPatchSize: Int?
+        public var temporalPatchSize: Int? { _temporalPatchSize }
+
         enum CodingKeys: String, CodingKey {
             case modelType = "model_type"
             case hiddenSize = "hidden_size"
-            case intermediateSize = "intermediate_size"
+            case _intermediateSize = "intermediate_size"
             case depth = "depth"
-            case numHeads = "num_heads"
+
+            case _numHeads = "num_heads"
+            case _numAttentionHeads = "num_attention_heads"
+
             case _numChannels = "num_channels"
+            case _inChannels = "in_channels"
+
             case _imageSize = "image_size"
             case _patchSize = "patch_size"
             case _numPatches = "num_patches"
+
+            case _rmsNormEps = "rms_norm_eps"
             case _layerNormEps = "layer_norm_eps"
+
             case _hiddenAct = "hidden_act"
             case _dropout = "dropout"
             case _attentionDropout = "attention_dropout"
             case _useFlashAttention = "use_flash_attention"
+
+            case _outHiddenSize = "out_hidden_size"
+            case _spatialMergeSize = "spatial_merge_size"
+            case _temporalPatchSize = "temporal_patch_size"
         }
     }
 
     public let textConfiguration: TextConfiguration
     public let visionConfiguration: VisionConfiguration
     public let modelType: String
+
     private let _downsampleFactor: Int?
     public var downsampleFactor: Int { _downsampleFactor ?? 2 }
+
     private let _imageTokenId: Int?
     public var imageTokenId: Int { _imageTokenId ?? 50291 }
+
     private let _imageStartTokenId: Int?
     public var imageStartTokenId: Int { _imageStartTokenId ?? 50290 }
+
     private let _imageEndTokenId: Int?
     public var imageEndTokenId: Int { _imageEndTokenId ?? 50292 }
+
     private let _projectorBias: Bool?
     public var projectorBias: Bool { _projectorBias ?? true }
+
     private let _projectorHiddenSize: Int?
     public var projectorHiddenSize: Int { _projectorHiddenSize ?? 2560 }
+
     private let _projectorUseLayernorm: Bool?
     public var projectorUseLayernorm: Bool { _projectorUseLayernorm ?? true }
+
     private let _visionFeatureLayer: Int?
     /// Which vision encoder layer to use for features. -1 means use all layers (default).
     public var visionFeatureLayer: Int { _visionFeatureLayer ?? -1 }
+
     private let _doImageSplitting: Bool?
     public var doImageSplitting: Bool { _doImageSplitting ?? true }
+
     private let _maxImageTokens: Int?
     public var maxImageTokens: Int { _maxImageTokens ?? 256 }
+
     private let _maxNumPatches: Int?
     public var maxNumPatches: Int { _maxNumPatches ?? 1024 }
+
     private let _minImageTokens: Int?
     public var minImageTokens: Int { _minImageTokens ?? 64 }
+
     private let _minTiles: Int?
     public var minTiles: Int { _minTiles ?? 2 }
+
     private let _useThumbnail: Bool?
     public var useThumbnail: Bool { _useThumbnail ?? false }
+
+    // Additional top-level quantization related fields (added per instruction)
+    private let _quantization: String?
+    public var quantization: String? { _quantization }
+
+    private let _groupSize: Int?
+    public var groupSize: Int? { _groupSize }
+
+    private let _bits: Int?
+    public var bits: Int? { _bits }
+
+    private let _mode: String?
+    public var mode: String? { _mode }
 
     enum CodingKeys: String, CodingKey {
         case textConfiguration = "text_config"
         case visionConfiguration = "vision_config"
         case modelType = "model_type"
+
         case _downsampleFactor = "downsample_factor"
         case _imageTokenId = "image_token_id"
         case _imageStartTokenId = "image_start_token_id"
         case _imageEndTokenId = "image_end_token_id"
+
         case _projectorBias = "projector_bias"
         case _projectorHiddenSize = "projector_hidden_size"
         case _projectorUseLayernorm = "projector_use_layernorm"
+
         case _visionFeatureLayer = "vision_feature_layer"
         case _doImageSplitting = "do_image_splitting"
         case _maxImageTokens = "max_image_tokens"
@@ -1366,6 +1495,11 @@ public struct Glm46VConfiguration: Codable, Sendable {
         case _minImageTokens = "min_image_tokens"
         case _minTiles = "min_tiles"
         case _useThumbnail = "use_thumbnail"
+
+        case _quantization = "quantization"
+        case _groupSize = "group_size"
+        case _bits = "bits"
+        case _mode = "mode"
     }
 }
 
