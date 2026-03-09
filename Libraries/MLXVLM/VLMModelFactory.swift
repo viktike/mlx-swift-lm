@@ -77,6 +77,7 @@ public enum VLMTypeRegistry {
     /// Shared instance with default model types.
     public static let shared: ModelTypeRegistry = .init(creators: [
         "paligemma": create(PaliGemmaConfiguration.self, PaliGemma.init),
+        "glm4v": create(Glm46VConfiguration.self, Glm46V.init),
         "qwen2_vl": create(Qwen2VLConfiguration.self, Qwen2VL.init),
         "qwen2_5_vl": create(Qwen25VLConfiguration.self, Qwen25VL.init),
         "qwen3_vl": create(Qwen3VLConfiguration.self, Qwen3VL.init),
@@ -101,6 +102,8 @@ public enum VLMProcessorTypeRegistry {
     public static let shared: ProcessorTypeRegistry = .init(creators: [
         "PaliGemmaProcessor": create(
             PaliGemmaProcessorConfiguration.self, PaliGemmaProcessor.init),
+        "Glm46VProcessor": create(
+            Glm46VProcessorConfiguration.self, Glm46VProcessor.init),
         "Qwen2VLProcessor": create(
             Qwen2VLProcessorConfiguration.self, Qwen2VLProcessor.init),
         "Qwen2_5_VLProcessor": create(
@@ -137,6 +140,11 @@ public class VLMRegistry: AbstractModelRegistry, @unchecked Sendable {
 
     static public let paligemma3bMix448_8bit = ModelConfiguration(
         id: "mlx-community/paligemma-3b-mix-448-8bit",
+        defaultPrompt: "Describe the image in English"
+    )
+
+    static public let glm46VFlash4Bit = ModelConfiguration(
+        id: "mlx-community/GLM-4.6V-Flash-4bit",
         defaultPrompt: "Describe the image in English"
     )
 
@@ -222,6 +230,7 @@ public class VLMRegistry: AbstractModelRegistry, @unchecked Sendable {
     static public func all() -> [ModelConfiguration] {
         [
             paligemma3bMix448_8bit,
+            glm46VFlash4Bit,
             qwen2VL2BInstruct4Bit,
             qwen2_5VL3BInstruct4Bit,
             qwen3VL4BInstruct4Bit,
