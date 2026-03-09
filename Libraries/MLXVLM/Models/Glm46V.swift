@@ -112,27 +112,25 @@ private enum Vision {
         }
 
         func callAsFunction(_ x: MLXArray) -> MLXArray {
-            fc2(geluApproximate(fc1(x)))
+            fc2(silu(fc1(x)))
         }
     }
 
     fileprivate class EncoderLayer: Module {
         let embedDim: Int
         @ModuleInfo(key: "self_attn") var selfAttn: Attention
-        @ModuleInfo(key: "layer_norm1") var layerNorm1: LayerNorm
+        @ModuleInfo(key: "layer_norm1") var layerNorm1: RMSNorm
         @ModuleInfo var mlp: MLP
-        @ModuleInfo(key: "layer_norm2") var layerNorm2: LayerNorm
+        @ModuleInfo(key: "layer_norm2") var layerNorm2: RMSNorm
 
         init(config: Glm46VConfiguration.VisionConfiguration) {
             self.embedDim = config.hiddenSize
 
             self._selfAttn.wrappedValue = Attention(
-                dims: config.hiddenSize, numHeads: config.numHeads, bias: true)
-            self._layerNorm1.wrappedValue = LayerNorm(
-                dimensions: embedDim, eps: config.layerNormEps)
+                dims: config.hiddenSize, numHeads: config.numHeads, bias: false)
+            self._layerNorm1.wrappedValue = RMSNorm(dimensions: embedDim, eps: config.layerNormEps)
             self.mlp = MLP(config: config)
-            self._layerNorm2.wrappedValue = LayerNorm(
-                dimensions: embedDim, eps: config.layerNormEps)
+            self._layerNorm2.wrappedValue = RMSNorm(dimensions: embedDim, eps: config.layerNormEps)
         }
 
         func callAsFunction(_ x: MLXArray, mask: MLXArray? = nil) -> MLXArray {
@@ -290,15 +288,14 @@ private enum Vision {
 
         @ModuleInfo var embeddings: VisionEmbeddings
         @ModuleInfo var encoder: Encoder
-        @ModuleInfo(key: "post_layernorm") var postLayernorm: LayerNorm
+        @ModuleInfo(key: "post_layernorm") var postLayernorm: RMSNorm
 
         init(config: Glm46VConfiguration.VisionConfiguration, visionFeatureLayer: Int = -1) {
             self.modelType = config.modelType
 
             self.embeddings = VisionEmbeddings(config: config)
             self.encoder = Encoder(config: config, visionFeatureLayer: visionFeatureLayer)
-            self._postLayernorm.wrappedValue = LayerNorm(
-                dimensions: config.hiddenSize, eps: config.layerNormEps)
+            self._postLayernorm.wrappedValue = RMSNorm(dimensions: config.hiddenSize, eps: config.layerNormEps)
         }
 
         func callAsFunction(
@@ -630,7 +627,7 @@ private enum Language {
 // MARK: - Multi-modal Projector
 
 private class Glm46VMultiModalProjector: Module, UnaryLayer {
-    @ModuleInfo(key: "layer_norm") var layerNorm: LayerNorm?
+    @ModuleInfo(key: "layer_norm") var layerNorm: RMSNorm?
     @ModuleInfo(key: "linear_1") var linear1: Linear
     @ModuleInfo(key: "linear_2") var linear2: Linear
 
@@ -640,7 +637,7 @@ private class Glm46VMultiModalProjector: Module, UnaryLayer {
             * (config.downsampleFactor * config.downsampleFactor)
 
         if config.projectorUseLayernorm {
-            self._layerNorm.wrappedValue = LayerNorm(dimensions: inChannels)
+            self._layerNorm.wrappedValue = RMSNorm(dimensions: inChannels)
         }
 
         self._linear1.wrappedValue = Linear(
@@ -1268,7 +1265,7 @@ public struct Glm46VConfiguration: Codable, Sendable {
             if let ropeParams = ropeParameters, let theta = ropeParams["theta"] {
                 return theta
             }
-            return _ropeTheta ?? 1_000_000.0
+            return _ropeTheta ?? 500_000.0
         }
 
         private let _hiddenAct: String?
