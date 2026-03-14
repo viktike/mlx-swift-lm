@@ -989,7 +989,10 @@ public class FastVLMProcessor: UserInputProcessor {
 
         if input.images.isEmpty {
             // No image scenario
-            let promptTokens = try tokenizer.applyChatTemplate(messages: messages)
+            let promptTokens = try tokenizer.applyChatTemplate(
+                messages: messages, tools: input.tools,
+                additionalContext: input.additionalContext
+            )
             let tokensArray = MLXArray(promptTokens).expandedDimensions(axis: 0)
             let mask = ones(like: tokensArray)
             return LMInput(text: .init(tokens: tokensArray, mask: mask), image: nil)
