@@ -564,7 +564,7 @@ public class Qwen2VLProcessor: UserInputProcessor {
 
         var promptTokens = try tokenizer.applyChatTemplate(
             messages: messages, tools: input.tools,
-            additionalContext: input.additionalContext)
+            additionalContext: input.additionalContext
         )
 
         // Text-only input
