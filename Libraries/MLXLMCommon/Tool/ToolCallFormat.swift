@@ -144,8 +144,8 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return .harmony
         }
 
-        // Mistral3 family (mistral3, mistral3_text, etc.)
-        if type.hasPrefix("mistral3") {
+        // Mistral3 family (mistral, mistral3, mistral3_text, etc.)
+        if type.hasPrefix("mistral") {
             return .mistral
         }
 
