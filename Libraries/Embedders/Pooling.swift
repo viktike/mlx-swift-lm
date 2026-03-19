@@ -105,7 +105,7 @@ public class Pooling: Module {
             pooled = pooled[0..., 0 ..< dimension]
         }
         if normalize {
-            pooled = pooled / norm(pooled, axis: -1, keepDims: true)
+            pooled = pooled.l2Normalized()
         }
         return pooled
     }
