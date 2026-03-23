@@ -174,6 +174,9 @@ public class Qwen3Model: Module, EmbeddingModel {
     @ModuleInfo(key: "model") private var model: Qwen3ModelInner
     let configuration: Qwen3Configuration
 
+    /// Qwen3 embedding models use the final non-padding token as the sentence representation.
+    public let poolingStrategy: Pooling.Strategy? = .last
+
     public init(_ args: Qwen3Configuration) {
         self.configuration = args
         self.vocabularySize = args.vocabularySize

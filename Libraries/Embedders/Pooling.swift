@@ -22,16 +22,19 @@ public struct PoolingConfiguration: Codable {
     }
 }
 
-func loadPooling(modelDirectory: URL) -> Pooling {
+func loadPooling(modelDirectory: URL, model: EmbeddingModel) -> Pooling {
     let configurationURL = modelDirectory.appending(components: "1_Pooling", "config.json")
-    guard
-        let poolingConfig = try? JSONDecoder.json5().decode(
-            PoolingConfiguration.self, from: Data(contentsOf: configurationURL))
-    else {
-        return Pooling(strategy: .none)
+    if let poolingConfig = try? JSONDecoder.json5().decode(
+        PoolingConfiguration.self, from: Data(contentsOf: configurationURL))
+    {
+        return Pooling(config: poolingConfig)
     }
 
-    return Pooling(config: poolingConfig)
+    if let strategy = model.poolingStrategy {
+        return Pooling(strategy: strategy)
+    }
+
+    return Pooling(strategy: .none)
 }
 
 public class Pooling: Module {
@@ -90,7 +93,13 @@ public class Pooling: Module {
         case .first:
             pooled = inputs.hiddenStates![0..., 0, 0...]
         case .last:
-            pooled = inputs.hiddenStates![0..., -1, 0...]
+            let hiddenStates = inputs.hiddenStates!
+            let tokenCounts = sum(_mask.asType(.int32), axis: -1).asArray(Int32.self)
+            pooled = stacked(
+                tokenCounts.enumerated().map { batchIndex, count in
+                    let tokenIndex = max(Int(count) - 1, 0)
+                    return hiddenStates[batchIndex, tokenIndex, 0...]
+                })
         case .cls:
             pooled =
                 inputs.pooledOutput
