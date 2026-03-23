@@ -2,6 +2,7 @@
 
 import Foundation
 import MLX
+import MLXFast
 import MLXLMCommon
 import MLXNN
 
@@ -155,7 +156,7 @@ private class Attention: Module {
     @ModuleInfo(key: "q_norm") var queryNorm: Gemma.RMSNorm
     @ModuleInfo(key: "k_norm") var keyNorm: Gemma.RMSNorm
 
-    @ModuleInfo var rope: RoPE
+    let rope: RoPE
 
     /// Initializes an attention module.
     ///
@@ -209,7 +210,8 @@ private class Attention: Module {
     /// - Returns: Processed array of shape `[Batch, Length, HiddenSize]`.
     func callAsFunction(
         _ x: MLXArray,
-        mask: MLXFast.ScaledDotProductAttentionMaskMode
+        mask: MLXFast.ScaledDotProductAttentionMaskMode,
+        cache: KVCache?
     ) -> MLXArray {
         let (B, L) = (x.dim(0), x.dim(1))
 
@@ -224,8 +226,14 @@ private class Attention: Module {
         queries = queryNorm(queries)
         keys = keyNorm(keys)
 
-        queries = rope(queries)
-        keys = rope(keys)
+        if let cache {
+            queries = rope(queries, offset: cache.offset)
+            keys = rope(keys, offset: cache.offset)
+            (keys, values) = cache.update(keys: keys, values: values)
+        } else {
+            queries = rope(queries)
+            keys = rope(keys)
+        }
 
         let output = MLXFast.scaledDotProductAttention(
             queries: queries,
