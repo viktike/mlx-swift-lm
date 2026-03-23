@@ -110,6 +110,7 @@ extension ModelConfiguration {
         id: "mixedbread-ai/mxbai-embed-large-v1")
     public static let qwen3_embedding = ModelConfiguration(
         id: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ")
+    public static let gemma3_text = ModelConfiguration(id: "mlx-community/embeddinggemma-300m-bf16")
 
     private enum BootstrapState: Sendable {
         case idle
@@ -141,6 +142,7 @@ extension ModelConfiguration {
                 bge_m3,
                 mixedbread_large,
                 qwen3_embedding,
+                gemma3_text,
             ])
             bootstrapState = .bootstrapped
 
