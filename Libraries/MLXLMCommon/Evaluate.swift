@@ -65,10 +65,13 @@ public struct GenerateParameters: Sendable {
     public var maxKVSize: Int?
 
     /// Number of bits to use for KV cache quantization. nil implies no cache quantization.
-    public var kvBits: Int?
+    public var kvBits: Float?
 
-    /// Group size for KV cache quantization (default: 64)
+    /// Group size for uniform KV cache quantization (default: 64)
     public var kvGroupSize: Int
+
+    /// Quantization scheme for the KV cache backend.
+    public var kvQuantizationScheme: KVQuantizationScheme
 
     /// Step to begin using a quantized KV cache when kvBits is non-nil (default: 0)
     public var quantizedKVStart: Int
@@ -106,8 +109,9 @@ public struct GenerateParameters: Sendable {
     public init(
         maxTokens: Int? = nil,
         maxKVSize: Int? = nil,
-        kvBits: Int? = nil,
+        kvBits: Float? = nil,
         kvGroupSize: Int = 64,
+        kvQuantizationScheme: KVQuantizationScheme = .uniform,
         quantizedKVStart: Int = 0,
         temperature: Float = 0.6,
         topP: Float = 1.0,
@@ -125,6 +129,7 @@ public struct GenerateParameters: Sendable {
         self.maxKVSize = maxKVSize
         self.kvBits = kvBits
         self.kvGroupSize = kvGroupSize
+        self.kvQuantizationScheme = kvQuantizationScheme
         self.quantizedKVStart = quantizedKVStart
         self.temperature = temperature
         self.topP = topP
@@ -527,8 +532,9 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let maxTokens: Int?
 
     // Cache quantization parameters
-    let kvBits: Int?
+    let kvBits: Float?
     let kvGroupSize: Int
+    let kvQuantizationScheme: KVQuantizationScheme
     let quantizedKVStart: Int
 
     // Internal metrics
@@ -557,6 +563,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
 
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
+        self.kvQuantizationScheme = parameters.kvQuantizationScheme
         self.quantizedKVStart = parameters.quantizedKVStart
 
         self.promptPrefillTime = try measure {
@@ -590,6 +597,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
 
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
+        self.kvQuantizationScheme = parameters.kvQuantizationScheme
         self.quantizedKVStart = parameters.quantizedKVStart
 
         self.promptPrefillTime = try measure {
@@ -623,6 +631,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         // No cache quantization for this direct initialization
         self.kvBits = nil
         self.kvGroupSize = 64
+        self.kvQuantizationScheme = .uniform
         self.quantizedKVStart = 0
 
         self.promptPrefillTime = try measure {
@@ -674,6 +683,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             cache: &cache,
             kvBits: kvBits,
             kvGroupSize: kvGroupSize,
+            kvQuantizationScheme: kvQuantizationScheme,
             quantizedKVStart: quantizedKVStart
         )
 
