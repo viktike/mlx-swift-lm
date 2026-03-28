@@ -74,6 +74,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `<tool_call><function=name><parameter=key>value</parameter></function></tool_call>`
     case xmlFunction = "xml_function"
 
+    /// XML nemotron nano.
+    /// Example: `<tool_call><function=name><parameter=key>value</parameter></function></tool_call>`
+    case nemotron
+
     /// GLM4 format with arg_key/arg_value tags.
     /// Example: `func<arg_key>k</arg_key><arg_value>v</arg_value>`
     case glm4
@@ -81,6 +85,10 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Gemma function call format.
     /// Example: `call:name{key:value,k:<escape>str<escape>}`
     case gemma
+
+    /// Gemma3 tool calling format.
+    /// Example: ```tool_code\n{"name": "func", "arguments": {...}}\n```
+    case gem
 
     /// Kimi K2 format with functions prefix.
     /// Example: `functions.name:0<|tool_call_argument_begin|>{"key": "value"}`
@@ -90,9 +98,17 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `<invoke name="f"><parameter name="k">v</parameter></invoke>`
     case minimaxM2 = "minimax_m2"
 
+    /// Qwen3.5 format: XML function syntax wrapped in tool_call tags.
+    /// Example: `<tool_call><function=name><parameter=key>value</parameter></function></tool_call>`
+    case qwen35 = "qwen3_5"
+
     /// Mistral V11+ format with [TOOL_CALLS] and [ARGS] delimiters.
     /// Example: `[TOOL_CALLS]get_weather [ARGS]{"location": "Tokyo"}`
     case mistral
+
+    /// OpenAI Harmony format with channel-based tool dispatch.
+    /// Example: `<|start|>assistant<|channel|>commentary to=functions.name <|constrain|>json<|message|>{...}<|call|>`
+    case harmony
 
     // MARK: - Factory Methods
 
@@ -107,16 +123,24 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
                 startTag: "<|tool_call_start|>", endTag: "<|tool_call_end|>")
         case .xmlFunction:
             return XMLFunctionParser(startTag: "<tool_call>", endTag: "</tool_call>")
+        case .nemotron:
+            return XMLFunctionParser(startTag: "<tool_call>", endTag: "</tool_call>")
         case .glm4:
             return GLM4ToolCallParser()
         case .gemma:
             return GemmaFunctionParser()
+        case .gem:
+            return JSONToolCallParser(startTag: "```tool_code", endTag: "```")
         case .kimiK2:
             return KimiK2ToolCallParser()
         case .minimaxM2:
             return MiniMaxM2ToolCallParser()
         case .mistral:
             return MistralToolCallParser()
+        case .harmony:
+            return HarmonyToolCallParser()
+        case .qwen35:
+            return XMLFunctionParser(startTag: "<tool_call>", endTag: "</tool_call>")
         }
     }
 
@@ -138,6 +162,26 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
         // GLM4 family (glm4, glm4_moe, glm4_moe_lite, etc.)
         if type.hasPrefix("glm4") {
             return .glm4
+        }
+
+	// OpenAI GPT-OSS Harmony
+        if type.hasPrefix("gpt_oss") {
+            return .harmony
+        }
+
+        // Qwen3.5 family (qwen3_5, qwen3_5_moe, etc.)
+        if type.hasPrefix("qwen3_5") {
+            return .qwen35
+        }
+
+        // NVIDIA Nemotron
+        if type.hasPrefix("nemotron") {
+            return .nemotron
+        }
+
+        // Gemma3
+        if type == "gemma3" {
+            return .gem
         }
 
         // Gemma
