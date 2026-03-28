@@ -194,11 +194,6 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return .glm4
         }
 
-	// OpenAI GPT-OSS Harmony
-        if type.hasPrefix("gpt_oss") {
-            return .harmony
-        }
-
         // Qwen3.5 family (qwen3_5, qwen3_5_moe, etc.)
         if type.hasPrefix("qwen3_5") {
             return .qwen35
