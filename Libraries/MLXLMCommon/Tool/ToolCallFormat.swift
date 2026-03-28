@@ -110,10 +110,6 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
     /// Example: `<|python_tag|>{ "name": "func", "parameters": {...} }`
     case llama3
 
-    /// OpenAI Harmony format with channel-based tool dispatch.
-    /// Example: `<|start|>assistant<|channel|>commentary to=functions.name <|constrain|>json<|message|>{...}<|call|>`
-    case harmony
-
     // MARK: - Factory Methods
 
     /// Create the appropriate parser for this format.
@@ -143,8 +139,6 @@ public enum ToolCallFormat: String, Sendable, Codable, CaseIterable {
             return MistralToolCallParser()
         case .llama3:
             return Llama3ToolCallParser()
-        case .harmony:
-            return HarmonyToolCallParser()
         case .qwen35:
             return XMLFunctionParser(startTag: "<tool_call>", endTag: "</tool_call>")
         }
