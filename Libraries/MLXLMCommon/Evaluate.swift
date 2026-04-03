@@ -52,6 +52,39 @@ public protocol LogitProcessor {
 /// - ``LogitProcessor``
 ///
 /// for the `TokenIterator`.
+
+/// KV cache quantization/compression mode.
+///
+/// Controls how the KV cache is compressed during inference:
+///
+/// ```swift
+/// // No compression (default, same as today)
+/// var params = GenerateParameters()
+///
+/// // Affine quantization (existing path, unchanged)
+/// var params = GenerateParameters(kvBits: 4, kvGroupSize: 64)
+///
+/// // TurboQuant compression (Hadamard + Lloyd-Max + QJL)
+/// var params = GenerateParameters()
+/// params.kvMode = .turboQuant(keyBits: 3, valueBits: 3)
+/// ```
+public enum KVQuantizationMode: Sendable, Equatable {
+    /// No cache compression (float16, default)
+    case none
+
+    /// Affine quantization (existing QuantizedKVCache path)
+    case affine(bits: Int, groupSize: Int = 64)
+
+    /// TurboQuant compression: randomized Hadamard rotation + Lloyd-Max optimal
+    /// codebook quantization + QJL residual correction for keys.
+    /// Achieves 4.7-5.0x compression with zero generation speed overhead.
+    ///
+    /// - Parameters:
+    ///   - keyBits: Total bits per key element (default 3). Split as (b-1) codebook + 1 QJL.
+    ///   - valueBits: Total bits per value element (default 3). All bits go to codebook.
+    case turboQuant(keyBits: Int = 3, valueBits: Int = 3)
+}
+
 public struct GenerateParameters: Sendable {
 
     /// Step size for processing the prompt
@@ -73,7 +106,13 @@ public struct GenerateParameters: Sendable {
     /// Step to begin using a quantized KV cache when kvBits is non-nil (default: 0)
     public var quantizedKVStart: Int
 
-    /// sampling temperature
+    /// KV cache quantization/compression mode.
+    ///
+    /// When set to a value other than `.none`, this takes precedence over `kvBits`/`kvGroupSize`.
+    /// The legacy `kvBits`/`kvGroupSize` fields continue to work for backward compatibility.
+    public var kvMode: KVQuantizationMode = .none
+
+    /// Sampling temperature
     public var temperature: Float
 
     /// top p sampling
@@ -109,6 +148,7 @@ public struct GenerateParameters: Sendable {
         kvBits: Int? = nil,
         kvGroupSize: Int = 64,
         quantizedKVStart: Int = 0,
+        kvMode: KVQuantizationMode = .none,
         temperature: Float = 0.6,
         topP: Float = 1.0,
         topK: Int = 0,
@@ -126,6 +166,7 @@ public struct GenerateParameters: Sendable {
         self.kvBits = kvBits
         self.kvGroupSize = kvGroupSize
         self.quantizedKVStart = quantizedKVStart
+        self.kvMode = kvMode
         self.temperature = temperature
         self.topP = topP
         self.topK = topK
@@ -530,6 +571,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
     let kvBits: Int?
     let kvGroupSize: Int
     let quantizedKVStart: Int
+    let kvMode: KVQuantizationMode
 
     // Internal metrics
     var promptPrefillTime: TimeInterval = 0.0
@@ -558,6 +600,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
+        self.kvMode = parameters.kvMode
 
         self.promptPrefillTime = try measure {
             try prepare(input: .init(text: y), windowSize: parameters.prefillStepSize)
@@ -591,6 +634,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = parameters.kvBits
         self.kvGroupSize = parameters.kvGroupSize
         self.quantizedKVStart = parameters.quantizedKVStart
+        self.kvMode = parameters.kvMode
 
         self.promptPrefillTime = try measure {
             try prepare(input: input, windowSize: parameters.prefillStepSize)
@@ -624,6 +668,7 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         self.kvBits = nil
         self.kvGroupSize = 64
         self.quantizedKVStart = 0
+        self.kvMode = .none
 
         self.promptPrefillTime = try measure {
             try prepare(input: input, windowSize: prefillStepSize)
@@ -669,12 +714,13 @@ public struct TokenIterator: Sequence, IteratorProtocol {
             previous[text: .newAxis], cache: cache.isEmpty ? nil : cache, state: state)
         self.state = result.state
 
-        // Apply dynamic cache quantization after each step
+        // Apply dynamic cache quantization/compression after each step
         maybeQuantizeKVCache(
             cache: &cache,
             kvBits: kvBits,
             kvGroupSize: kvGroupSize,
-            quantizedKVStart: quantizedKVStart
+            quantizedKVStart: quantizedKVStart,
+            kvMode: kvMode
         )
 
         return convertToToken(logits: result.logits)
@@ -696,6 +742,261 @@ public struct TokenIterator: Sequence, IteratorProtocol {
         tokenCount += 1
 
         return previousY.tokens.item(Int.self)
+    }
+}
+
+/// Generator of tokens using speculative decoding.
+///
+/// This is typically used via a call to ``generate(input:parameters:context:draftModel:draftCache:numDraftTokens:wiredMemoryTicket:)``
+/// returning `AsyncStream<Generation>`.
+///
+/// To use it directly:
+///
+/// ```swift
+/// let generateParameters: GenerateParameters
+/// let input: LMInput
+/// let mainModel: LanguageModel
+/// let draftModel: LanguageModel
+///
+/// let iterator = try SpeculativeTokenIterator(
+///     input: input, mainModel: mainModel, draftModel: draftModel,
+///     parameters: generateParameters, numDraftTokens: 2)
+///
+/// for token in iterator {
+///     ...
+/// }
+/// ```
+///
+/// Tokens are integers that can be passed through a `Tokenizer` or ``StreamingDetokenizer`` to produce Strings.
+///
+/// Port of `speculative_generate_step()` from https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/generate.py
+public struct SpeculativeTokenIterator: TokenIteratorProtocol {
+
+    var y: LMInput.Text
+    var draftY: LMInput.Text
+
+    let mainModel: any LanguageModel
+    let draftModel: any LanguageModel
+
+    var mainState: LMOutput.State?
+    var mainCache: [KVCache]
+    var draftCache: [KVCache]
+    let quantizeKVCache: (inout [KVCache]) -> Void
+
+    var processor: LogitProcessor?
+    let sampler: LogitSampler
+
+    var tokenCount = 0
+    let maxTokens: Int?
+    let numDraftTokens: Int
+
+    // Buffer of accepted tokens from the current speculation round
+    private var pendingTokens = [Int]()
+    private var pendingIndex = 0
+
+    // Internal metrics
+    var promptPrefillTime: TimeInterval = 0.0
+
+    /// Initialize a `SpeculativeTokenIterator` with the given input.
+    ///
+    /// - Parameters:
+    ///   - input: language model input
+    ///   - mainModel: the main (verifier) ``LanguageModel``
+    ///   - draftModel: the draft ``LanguageModel`` (must share the same tokenizer)
+    ///   - mainCache: optional ``KVCache`` for the main model
+    ///   - draftCache: optional ``KVCache`` for the draft model
+    ///   - parameters: the generation parameters
+    ///   - numDraftTokens: number of tokens the draft model proposes per round
+    public init(
+        input: LMInput,
+        mainModel: any LanguageModel,
+        draftModel: any LanguageModel,
+        mainCache: [KVCache]? = nil,
+        draftCache: [KVCache]? = nil,
+        parameters: GenerateParameters,
+        numDraftTokens: Int
+    ) throws {
+        self.y = input.text
+        self.draftY = input.text
+        self.mainModel = mainModel
+        self.draftModel = draftModel
+
+        self.mainCache = mainCache ?? mainModel.newCache(parameters: parameters)
+        self.draftCache = draftCache ?? draftModel.newCache(parameters: parameters)
+        guard canTrimPromptCache(self.mainCache), canTrimPromptCache(self.draftCache) else {
+            throw KVCacheError(message: "Speculative decoding requires trimmable KV caches.")
+        }
+
+        self.sampler = parameters.sampler()
+        self.processor = parameters.processor()
+
+        self.maxTokens = parameters.maxTokens
+        self.numDraftTokens = numDraftTokens
+
+        self.quantizeKVCache = { cache in
+            maybeQuantizeKVCache(
+                cache: &cache,
+                kvBits: parameters.kvBits,
+                kvGroupSize: parameters.kvGroupSize,
+                quantizedKVStart: parameters.quantizedKVStart,
+                kvMode: parameters.kvMode
+            )
+        }
+
+        self.promptPrefillTime = try measure {
+            try prepare(input: input, windowSize: parameters.prefillStepSize)
+        }
+    }
+
+    /// Prefill both main and draft models with the prompt, priming caches for generation
+    mutating func prepare(input: LMInput, windowSize: Int? = nil) throws {
+        processor?.prompt(input.text.tokens)
+
+        // Prefill main model
+        switch try mainModel.prepare(input, cache: mainCache, windowSize: windowSize) {
+        case .tokens(let tokens):
+            y = tokens
+        case .logits(let result):
+            var logits = result.logits[0..., -1, 0...]
+            logits = processor?.process(logits: logits) ?? logits
+            let token = sampler.sample(logits: logits)
+            processor?.didSample(token: token)
+            y = .init(tokens: token)
+            mainState = result.state
+        }
+
+        // Prefill draft model, don't call didSample here -- processor tracks main model's accepted sequence only
+        switch try draftModel.prepare(input, cache: draftCache, windowSize: windowSize) {
+        case .tokens(let tokens):
+            draftY = tokens
+        case .logits(let result):
+            var logits = result.logits[0..., -1, 0...]
+            logits = processor?.process(logits: logits) ?? logits
+            let token = sampler.sample(logits: logits)
+            draftY = .init(tokens: token)
+            asyncEval(draftY.tokens)
+        }
+    }
+
+    /// Run one round of speculative decoding: draft, verify, accept/reject
+    mutating func speculateRound() {
+        let remaining = maxTokens.map { $0 - tokenCount } ?? numDraftTokens
+        let numDraft = Swift.min(remaining, numDraftTokens)
+        guard numDraft > 0 else {
+            return
+        }
+
+        // Draft generation: autoregressive loop with draft model
+        var draftProcessor = processor  // Copy to discard later
+        var draftTokens = [MLXArray]()
+        for _ in 0 ..< numDraft {
+            let draftResult = draftModel(draftY[text: .newAxis], cache: draftCache, state: nil)
+            var draftLogits = draftResult.logits[0..., -1, 0...]
+            draftLogits = draftProcessor?.process(logits: draftLogits) ?? draftLogits
+            let draftToken = sampler.sample(logits: draftLogits)
+            draftProcessor?.didSample(token: draftToken)
+            asyncEval(draftToken)
+            draftTokens.append(draftToken)
+            draftY = .init(tokens: draftToken)
+        }
+
+        // Verification: main model processes proposals in one pass
+        let verifyTokens = [y.tokens] + draftTokens
+        let verifyInput = LMInput.Text(tokens: concatenated(verifyTokens))
+        let verifyStart = verifyInput.tokens.dim(0) - (numDraft + 1)
+        let mainResult = mainModel(verifyInput[text: .newAxis], cache: mainCache, state: mainState)
+        let mainLogits = mainResult.logits
+        mainState = mainResult.state
+
+        let mainTokens: MLXArray
+        if var verifyProcessor = processor {
+            // Process each position sequentially so that the processor sees tokens sampled at earlier positions
+            var sampled = [MLXArray]()
+            for i in 0 ..< (numDraft + 1) {
+                var logits = mainLogits[0..., verifyStart + i, 0...]
+                logits = verifyProcessor.process(logits: logits)
+                let token = sampler.sample(logits: logits)
+                verifyProcessor.didSample(token: token)
+                sampled.append(token)
+            }
+            mainTokens = concatenated(sampled)
+        } else {
+            // Batch-sample all verify tokens from main model in one operation
+            let verifyLogits = mainLogits[0..., verifyStart..., 0...].squeezed(axis: 0)
+            mainTokens = sampler.sample(logits: verifyLogits)
+        }
+
+        // Compare and accept proposed tokens
+        eval(mainTokens, draftTokens)
+        let mainTokensList = mainTokens.asArray(Int.self)
+        let draftTokensList = concatenated(draftTokens).asArray(Int.self)
+        var accepted = 0
+        for i in 0 ..< numDraft {
+            guard mainTokensList[i] == draftTokensList[i] else {
+                break
+            }
+
+            processor?.didSample(token: draftTokens[i])
+            pendingTokens.append(mainTokensList[i])
+            accepted += 1
+        }
+
+        // Always emit the main model's token at position `accepted`
+        // (either the correction token or the bonus token if all drafts matched)
+        let finalToken = mainTokens[accepted ... accepted]
+        processor?.didSample(token: finalToken)
+        pendingTokens.append(mainTokensList[accepted])
+
+        // Rewind caches for rejected tokens
+        trimPromptCache(mainCache, numTokens: numDraft - accepted)
+        trimPromptCache(draftCache, numTokens: Swift.max(numDraft - accepted - 1, 0))
+
+        // Apply dynamic cache quantization after rewind
+        quantizeKVCache(&mainCache)
+        quantizeKVCache(&draftCache)
+
+        // Set y/draftY for the next round
+        y = .init(tokens: finalToken)
+        draftY = .init(tokens: finalToken)
+
+        // If all draft tokens were accepted, the draft model hasn't processed
+        // the last accepted draft token yet. Feed it through to keep caches in sync.
+        if accepted == numDraft {
+            draftY = .init(
+                tokens: concatenated([
+                    draftTokens[numDraft - 1].reshaped([1]),
+                    finalToken,
+                ])
+            )
+        }
+    }
+
+    mutating public func next() -> Int? {
+        if let maxTokens, tokenCount >= maxTokens {
+            return nil
+        }
+
+        // Drain the pending buffer first
+        if pendingIndex < pendingTokens.count {
+            let token = pendingTokens[pendingIndex]
+            pendingIndex += 1
+            tokenCount += 1
+            return token
+        }
+
+        // Run a new speculation round
+        pendingTokens.removeAll(keepingCapacity: true)
+        pendingIndex = 0
+        speculateRound()
+
+        if pendingTokens.isEmpty {
+            return nil
+        }
+
+        let token = pendingTokens[pendingIndex]
+        pendingIndex += 1
+        tokenCount += 1
+        return token
     }
 }
 
