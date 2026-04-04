@@ -17,13 +17,17 @@ public struct GemmaFunctionParser: ToolCallParser, Sendable {
 
 
     public func parse(content: String, tools: [[String: any Sendable]]?) -> ToolCall? {
+        // Unwrap
+        guard let start = startTag, let end = endTag else { return nil }
+        guard let marker = escapeMarker else { return nil }
+
         // Strip tags if present
         var text = content
-        if let start = startTag {
-            text = text.replacingOccurrences(of: start, with: "")
+        if let startRange = text.range(of: start) {
+            text = String(text[startRange.upperBound...])
         }
-        if let end = endTag {
-            text = text.replacingOccurrences(of: end, with: "")
+        if let endRange = text.range(of: end) {
+            text = String(text[..<endRange.lowerBound])
         }
 
         // Pattern: call:(\w+)\{(.*?)\}
@@ -52,9 +56,9 @@ public struct GemmaFunctionParser: ToolCallParser, Sendable {
             argsStr = String(argsStr[argsStr.index(after: colonIdx)...])
 
             // Handle escaped strings
-            if argsStr.hasPrefix(escapeMarker) {
-                argsStr = String(argsStr.dropFirst(escapeMarker.count))
-                guard let endEscape = argsStr.range(of: escapeMarker) else { break }
+            if argsStr.hasPrefix(marker) {
+                argsStr = String(argsStr.dropFirst(marker.count))
+                guard let endEscape = argsStr.range(of: marker) else { break }
                 let value = String(argsStr[..<endEscape.lowerBound])
                 arguments[key] = value
                 argsStr = String(argsStr[endEscape.upperBound...])
