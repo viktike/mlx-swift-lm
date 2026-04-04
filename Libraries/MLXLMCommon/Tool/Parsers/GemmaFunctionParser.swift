@@ -8,7 +8,7 @@ public struct GemmaFunctionParser: ToolCallParser, Sendable {
     public let startTag: String? = "<start_function_call>"
     public let endTag: String? = "<end_function_call>"
 
-    private let escapeMarker = "<escape>"
+    public let escapeMarker: String? = "<escape>"
 
     public init() {}
 
