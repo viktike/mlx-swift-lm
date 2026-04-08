@@ -1108,6 +1108,23 @@ public struct Glm4VConfiguration: Codable, Sendable {
         private let _tieWordEmbeddings: Bool?
         public var tieWordEmbeddings: Bool { _tieWordEmbeddings ?? false }
 
+        public init(from decoder: any Swift.Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            
+            self.hiddenSize = try container.decode(Int.self, forKey: .hiddenSize)
+            self.hiddenLayers = try container.decode(Int.self, forKey: .hiddenLayers)
+            self.intermediateSize = try container.decode(Int.self, forKey: .intermediateSize)
+            self.attentionHeads = try container.decode(Int.self, forKey: .attentionHeads)
+            self.kvHeads = try container.decode(Int.self, forKey: .kvHeads)
+            self.headDim = try container.decodeIfPresent(Int.self, forKey: .headDim)
+                ?? (hiddenSize / attentionHeads)
+            self.vocabularySize = try container.decodeIfPresent(Int.self, forKey: .vocabularySize)
+                ?? 59392
+            self.ropeParameters = try container.decode(RopeParameters.self, forKey: .ropeParameters)
+            self._rmsNormEps = try container.decodeIfPresent(Float.self, forKey: ._rmsNormEps)
+            self._tieWordEmbeddings = try container.decodeIfPresent(Bool.self, forKey: ._tieWordEmbeddings)
+        }
+
         enum CodingKeys: String, CodingKey {
             case hiddenSize = "hidden_size"
             case hiddenLayers = "num_hidden_layers"
