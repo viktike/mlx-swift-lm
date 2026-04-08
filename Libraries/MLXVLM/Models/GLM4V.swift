@@ -308,9 +308,7 @@ private enum Language {
             let mask = createAttentionMask(h: h, cache: cache?.first)
 
             for (i, layer) in layers.enumerated() {
-                h = layer(
-                    h, mask: mask, cache: cache?[i],
-                    positionEmbeddings: positionEmbeddings)
+                h = layer(h, mask: mask, cache: cache?[i])
             }
 
             return norm(h)
