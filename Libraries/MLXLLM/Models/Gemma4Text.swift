@@ -22,6 +22,11 @@ import MLX
 import MLXLMCommon
 import MLXNN
 
+private let compiledLogitSoftcap: @Sendable (MLXArray, MLXArray) -> MLXArray =
+    compile(shapeless: true) { (x: MLXArray, cap: MLXArray) -> MLXArray in
+        tanh(x / cap) * cap
+    }
+
 // MARK: - Configuration
 
 public struct Gemma4TextConfiguration: Codable {
@@ -866,7 +871,7 @@ public class Gemma4TextModel: Module, LLMModel {
             out = lmHead(out)
         }
         if let softcap = config.finalLogitSoftcapping {
-            out = tanh(out / softcap) * softcap
+            out = compiledLogitSoftcap(out, MLXArray(softcap))
         }
         return out
     }
