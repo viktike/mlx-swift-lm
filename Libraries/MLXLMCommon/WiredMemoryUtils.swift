@@ -107,7 +107,6 @@ public enum WiredMemoryUtils {
                 cache: &cache,
                 kvBits: parameters.kvBits,
                 kvGroupSize: parameters.kvGroupSize,
-                kvQuantizationScheme: parameters.kvQuantizationScheme,
                 quantizedKVStart: parameters.quantizedKVStart
             )
             eval(result.logits)
@@ -116,7 +115,6 @@ public enum WiredMemoryUtils {
                 cache: &cache,
                 kvBits: parameters.kvBits,
                 kvGroupSize: parameters.kvGroupSize,
-                kvQuantizationScheme: parameters.kvQuantizationScheme,
                 quantizedKVStart: parameters.quantizedKVStart
             )
             eval(result.logits)

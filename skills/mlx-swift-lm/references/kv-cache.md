@@ -54,27 +54,16 @@ let cache = RotatingKVCache(
 // - Offset continues growing, but actual cache size is capped
 ```
 
-### QuantizedKVCache / TurboQuant
+### QuantizedKVCache
 
-Memory-efficient cache backends support both uniform quantization and TurboQuant:
+Memory-efficient cache using 4-bit or 8-bit quantization:
 
 ```swift
 // Enable via GenerateParameters
 let params = GenerateParameters(
-    kvBits: 4,           // Integer bits keep uniform quantization by default
-    kvGroupSize: 64,     // Uniform quantization group size
-    kvQuantizationScheme: .uniform,
+    kvBits: 4,           // 4 or 8 bits
+    kvGroupSize: 64,     // Quantization group size
     quantizedKVStart: 0  // Start quantizing after N tokens
-)
-
-let turboParams = GenerateParameters(
-    kvBits: 3.5,         // Fractional bits auto-select TurboQuant
-    quantizedKVStart: 0
-)
-
-let forcedTurbo = GenerateParameters(
-    kvBits: 4,
-    kvQuantizationScheme: .turboQuant
 )
 
 // Or create directly
@@ -83,8 +72,6 @@ let cache = QuantizedKVCache(
     bits: 4,
     mode: .affine
 )
-
-let turboCache = TurboQuantKVCache(bits: 3.5)
 
 // Use updateQuantized() instead of update()
 let (qKeys, qValues) = cache.updateQuantized(keys: keys, values: values)
@@ -97,9 +84,7 @@ let (qKeys, qValues) = cache.updateQuantized(keys: keys, values: values)
 Caches can be converted during generation:
 
 ```swift
-// Simple cache converts after the threshold:
-// - integer kvBits + .uniform => QuantizedKVCache
-// - fractional kvBits or .turboQuant => TurboQuantKVCache
+// Simple cache converts to quantized after threshold
 var cache: [KVCache] = model.newCache(parameters: nil)
 
 // This happens automatically inside TokenIterator when:
@@ -107,9 +92,8 @@ var cache: [KVCache] = model.newCache(parameters: nil)
 // - cache offset > quantizedKVStart
 maybeQuantizeKVCache(
     cache: &cache,
-    kvBits: 3.5,
+    kvBits: 4,
     kvGroupSize: 64,
-    kvQuantizationScheme: .uniform,
     quantizedKVStart: 0
 )
 
@@ -216,7 +200,6 @@ let mask = makeAttentionMask(
 | KVCacheSimple (fp16) | Full | ~512MB |
 | RotatingKVCache | Fixed at maxKVSize | Capped at maxKVSize |
 | QuantizedKVCache (4-bit) | ~1/4 of fp16 | ~128MB |
-| TurboQuantKVCache (3.5-bit) | Similar or smaller than 4-bit uniform | Model-dependent |
 
 ### Best Practices
 
@@ -224,11 +207,7 @@ let mask = makeAttentionMask(
 // For chat applications with long history
 let params = GenerateParameters(
     maxKVSize: 4096,  // Sliding window
-    kvBits: 4         // Uniform quantized
-)
-
-let turboParams = GenerateParameters(
-    kvBits: 3.5       // TurboQuant
+    kvBits: 4         // Quantized
 )
 
 // For short interactions (no memory pressure)

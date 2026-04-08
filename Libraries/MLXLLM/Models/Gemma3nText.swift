@@ -274,9 +274,10 @@ class Gemma3nAttention: Module {
         var values: MLXArray
 
         if isKvSharedLayer && cache != nil {
-            if let state = dequantizedKVState(cache: cache!) {
-                keys = state.0
-                values = state.1
+            let state = cache!.state
+            if state.count >= 2 {
+                keys = state[0]
+                values = state[1]
             } else {
                 keys = kProj(x).reshaped(B, L, -1, headDim)
                 keys = kNorm(keys)
@@ -288,11 +289,7 @@ class Gemma3nAttention: Module {
                 values = values.transposed(0, 2, 1, 3)
 
                 if let cache = cache {
-                    (keys, values) = updateCacheAndReturnArrays(
-                        keys: keys,
-                        values: values,
-                        cache: cache
-                    )
+                    (keys, values) = cache.update(keys: keys, values: values)
                 }
             }
         } else {
@@ -306,11 +303,7 @@ class Gemma3nAttention: Module {
             values = values.transposed(0, 2, 1, 3)
 
             if let cache = cache {
-                (keys, values) = updateCacheAndReturnArrays(
-                    keys: keys,
-                    values: values,
-                    cache: cache
-                )
+                (keys, values) = cache.update(keys: keys, values: values)
             }
         }
 
