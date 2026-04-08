@@ -242,13 +242,10 @@ private enum Language {
         }
 
         public func callAsFunction(
-            _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?,
-            positionEmbeddings: (MLXArray, MLXArray)
+            _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode, cache: KVCache?
         ) -> MLXArray {
             var r = x
-            var h = attention(
-                inputLayerNorm(x), mask: mask, cache: cache,
-                positionEmbeddings: positionEmbeddings)
+            var h = attention(inputLayerNorm(x), mask: mask, cache: cache)
             h = postSelfAttnLayerNorm(h)
             h = r + h
             r = h
