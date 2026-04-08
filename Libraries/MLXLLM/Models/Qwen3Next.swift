@@ -12,15 +12,8 @@ import MLXNN
 
 // MARK: - Helpers
 
-/// Compiled sigmoid gate: fuses sigmoid + multiply into one Metal dispatch.
-/// Used per-layer in Qwen3.5 attention (GatedDeltaNet) — 40 layers per forward.
-private let _compiledSigmoidMultiply: @Sendable (MLXArray, MLXArray) -> MLXArray =
-    compile(shapeless: true) { (x: MLXArray, gate: MLXArray) -> MLXArray in
-        x * sigmoid(gate)
-    }
-
 func sigmoidMultiply(_ x: MLXArray, _ gate: MLXArray) -> MLXArray {
-    _compiledSigmoidMultiply(x, gate)
+    x * sigmoid(gate)
 }
 
 // MARK: - Model Components
@@ -281,10 +274,10 @@ public final class Qwen3NextGatedDeltaNet: Module {
 
         let invScale = pow(Float(headKDim), -0.5)
         qOut =
-            MLXArray(invScale * invScale)
+            MLXArray(invScale * invScale).asType(dtype)
             * MLXFast.rmsNorm(qOut, weight: MLXArray.mlxNone, eps: 1e-6)
         kOut =
-            MLXArray(invScale)
+            MLXArray(invScale).asType(dtype)
             * MLXFast.rmsNorm(kOut, weight: MLXArray.mlxNone, eps: 1e-6)
 
         let (out, newState) = gatedDeltaUpdate(

@@ -12,13 +12,6 @@ import MLX
 import MLXLMCommon
 import MLXNN
 
-/// Compiled shared expert gate: sigmoid(gate_output) * expert_output → 1 fused op.
-private let compiledSigmoidGate: @Sendable (MLXArray, MLXArray) -> MLXArray =
-    compile(shapeless: true) { (gateOutput: MLXArray, expertOutput: MLXArray) -> MLXArray in
-        sigmoid(gateOutput) * expertOutput
-    }
-
-
 // MARK: - Configuration
 
 private enum RopeParametersCodingKey: String, CodingKey {
@@ -269,13 +262,13 @@ final class Qwen35GatedDeltaNet: Module {
         let v = convSplit[2].reshaped(B, S, numVHeads, headVDim)
 
         var state = cache?[1]
+        let dtype = q.dtype
         let invScale = pow(Float(headKDim), -0.5)
-        // No .asType needed — MLX broadcasts scalar * array without extra ops
         let qNormed =
-            MLXArray(pow(invScale, 2))
+            MLXArray(pow(invScale, 2)).asType(dtype)
             * MLXFast.rmsNorm(q, weight: MLXArray.mlxNone, eps: 1e-6)
         let kNormed =
-            MLXArray(invScale)
+            MLXArray(invScale).asType(dtype)
             * MLXFast.rmsNorm(k, weight: MLXArray.mlxNone, eps: 1e-6)
 
         var out: MLXArray
@@ -436,10 +429,10 @@ final class Qwen35SparseMoeBlock: Module, UnaryLayer {
         let y = switchMLP(x, inds)
         let combined = (y * scores[.ellipsis, .newAxis]).sum(axis: -2)
 
-        let sharedY = sharedExpert(x)
-        let gatedSharedY = compiledSigmoidGate(sharedExpertGate(x), sharedY)
+        var sharedY = sharedExpert(x)
+        sharedY = sigmoid(sharedExpertGate(x)) * sharedY
 
-        return combined + gatedSharedY
+        return combined + sharedY
     }
 }
 
