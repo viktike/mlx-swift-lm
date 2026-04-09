@@ -162,7 +162,7 @@ private enum Language {
 
             self._wq.wrappedValue = Linear(dim, heads * headDim, bias: true)
             self._wk.wrappedValue = Linear(dim, kvHeads * headDim, bias: true)
-            self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: false)
+            self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: true)
             self._wo.wrappedValue = Linear(heads * headDim, dim, bias: false)
         }
 
@@ -536,11 +536,11 @@ private enum Vision {
 
         public init(_ config: GlmOcrConfiguration.VisionConfiguration) {
             self._gate.wrappedValue = Linear(
-                config.hiddenSize, config.intermediateSize, bias: true)
+                config.hiddenSize, config.outHiddenSize, bias: false)
             self._up.wrappedValue = Linear(
-                config.hiddenSize, config.intermediateSize, bias: true)
+                config.hiddenSize, config.outHiddenSize, bias: false)
             self._down.wrappedValue = Linear(
-                config.intermediateSize, config.hiddenSize, bias: true)
+                config.outHiddenSize, config.hiddenSize, bias: false)
         }
 
         public func callAsFunction(_ x: MLXArray) -> MLXArray {
