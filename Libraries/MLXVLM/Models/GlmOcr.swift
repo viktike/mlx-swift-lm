@@ -162,7 +162,7 @@ private enum Language {
 
             self._wq.wrappedValue = Linear(dim, heads * headDim, bias: true)
             self._wk.wrappedValue = Linear(dim, kvHeads * headDim, bias: true)
-            self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: true)
+            self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: false)
             self._wo.wrappedValue = Linear(heads * headDim, dim, bias: false)
         }
 
@@ -464,8 +464,6 @@ private enum Vision {
 
         @ModuleInfo var qkv: Linear
         @ModuleInfo var proj: Linear
-        @ModuleInfo(key: "q_norm") var qNorm: RMSNorm
-        @ModuleInfo(key: "k_norm") var kNorm: RMSNorm
 
         public init(_ config: GlmOcrConfiguration.VisionConfiguration) {
             self.numHeads = config.numHeads
@@ -473,13 +471,9 @@ private enum Vision {
             self.scale = pow(Float(headDim), -0.5)
 
             self._qkv.wrappedValue = Linear(
-                config.hiddenSize, config.hiddenSize * 3, bias: true)
+                config.hiddenSize, config.hiddenSize * 3, bias: false)
             self._proj.wrappedValue = Linear(
-                config.hiddenSize, config.hiddenSize, bias: true)
-            self._qNorm.wrappedValue = RMSNorm(
-                dimensions: headDim, eps: config.rmsNormEps)
-            self._kNorm.wrappedValue = RMSNorm(
-                dimensions: headDim, eps: config.rmsNormEps)
+                config.hiddenSize, config.hiddenSize, bias: false)
         }
 
         public func callAsFunction(
@@ -494,9 +488,6 @@ private enum Vision {
             var q = parts[0].squeezed(axis: 0)
             var k = parts[1].squeezed(axis: 0)
             let v = parts[2].squeezed(axis: 0)
-
-            q = qNorm(q)
-            k = kNorm(k)
 
             q = applyRotaryPosEmbVision(q, freqs: rotaryPositionEmbedding)
             k = applyRotaryPosEmbVision(k, freqs: rotaryPositionEmbedding)
