@@ -160,8 +160,8 @@ private enum Language {
             self.headDim = args.headDim
             self.scale = pow(Float(headDim), -0.5)
 
-            self._wq.wrappedValue = Linear(dim, heads * headDim, bias: false)
-            self._wk.wrappedValue = Linear(dim, kvHeads * headDim, bias: false)
+            self._wq.wrappedValue = Linear(dim, heads * headDim, bias: true)
+            self._wk.wrappedValue = Linear(dim, kvHeads * headDim, bias: true)
             self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: false)
             self._wo.wrappedValue = Linear(heads * headDim, dim, bias: false)
         }
@@ -633,7 +633,7 @@ private enum Vision {
 
             self._merger.wrappedValue = PatchMerger(
                 dim: config.outHiddenSize,
-                contextDim: config.outHiddenSize * config.inChannels)
+                contextDim: config.intermediateSize)
 
             self._postLayernorm.wrappedValue = RMSNorm(
                 dimensions: config.hiddenSize, eps: config.rmsNormEps)
