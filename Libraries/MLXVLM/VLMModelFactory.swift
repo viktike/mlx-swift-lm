@@ -100,7 +100,7 @@ public enum VLMTypeRegistry {
         "lfm2_vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "lfm2-vl": create(LFM2VLConfiguration.self, LFM2VL.init),
         "glm_ocr": create(GlmOcrConfiguration.self, GlmOcr.init),
-        "glm4v": create(Glm4VConfiguration.self, Glm4V.init),
+        "glm4v": create(GlmOcrConfiguration.self, GlmOcr.init),
     ])
 }
 
