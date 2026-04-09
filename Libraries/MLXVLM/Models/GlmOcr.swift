@@ -162,7 +162,7 @@ private enum Language {
 
             self._wq.wrappedValue = Linear(dim, heads * headDim, bias: true)
             self._wk.wrappedValue = Linear(dim, kvHeads * headDim, bias: true)
-            self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: false)
+            self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: true)
             self._wo.wrappedValue = Linear(heads * headDim, dim, bias: false)
         }
 
@@ -456,6 +456,16 @@ private enum Vision {
         }
     }
 
+    fileprivate class VisionEmbeddings: Module {
+        @ModuleInfo(key: "position_embedding") var positionEmbedding: Embedding
+
+        init(_ config: GlmOcrConfiguration.VisionConfiguration) {
+            let numPatches = (config.imageSize / config.patchSize) * (config.imageSize / config.patchSize)
+            self._positionEmbedding.wrappedValue = Embedding(
+                embeddingCount: numPatches, dimensions: config.hiddenSize)
+        }
+    }
+
     fileprivate class Attention: Module {
 
         let numHeads: Int
@@ -595,9 +605,11 @@ private enum Vision {
 
         @ModuleInfo(key: "patch_embed") var patchEmbed: PatchEmbed
         let rotaryPosEmb: QwenVL.VisionRotaryEmbedding
+        @ModuleInfo(key: "embeddings") var embeddings: VisionEmbeddings
         @ModuleInfo(key: "blocks") var blocks: [GlmOcrVisionBlock]
         @ModuleInfo var downsample: Conv2d
         @ModuleInfo var merger: PatchMerger
+        @ModuleInfo(key: "post_conv_layernorm") var postConvLayernorm: RMSNorm
         @ModuleInfo(key: "post_layernorm") var postLayernorm: RMSNorm
 
         let spatialMergeSize: Int
@@ -610,6 +622,8 @@ private enum Vision {
             let headDim = config.hiddenSize / config.numHeads
             self.rotaryPosEmb = QwenVL.VisionRotaryEmbedding(
                 dimensions: headDim / 2, theta: 10_000)
+
+            self._embeddings.wrappedValue = VisionEmbeddings(config)
 
             self._blocks.wrappedValue = (0 ..< config.depth).map { _ in
                 GlmOcrVisionBlock(config)
@@ -626,6 +640,8 @@ private enum Vision {
                 dim: config.outHiddenSize,
                 contextDim: config.intermediateSize)
 
+            self._postConvLayernorm.wrappedValue = RMSNorm(
+                dimensions: config.hiddenSize, eps: config.rmsNormEps)
             self._postLayernorm.wrappedValue = RMSNorm(
                 dimensions: config.hiddenSize, eps: config.rmsNormEps)
         }
@@ -1126,6 +1142,7 @@ public struct GlmOcrConfiguration: Codable, Sendable {
         public let intermediateSize: Int
         public let numHeads: Int
         public let patchSize: Int
+        public let imageSize: Int
         public let outHiddenSize: Int
         public let spatialMergeSize: Int
         public let temporalPatchSize: Int
@@ -1140,6 +1157,7 @@ public struct GlmOcrConfiguration: Codable, Sendable {
             case intermediateSize = "intermediate_size"
             case numHeads = "num_heads"
             case patchSize = "patch_size"
+            case imageSize = "image_size"
             case outHiddenSize = "out_hidden_size"
             case spatialMergeSize = "spatial_merge_size"
             case temporalPatchSize = "temporal_patch_size"
