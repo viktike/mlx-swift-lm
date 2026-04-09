@@ -691,6 +691,14 @@ private enum Vision {
 
         public func callAsFunction(_ hiddenStates: MLXArray, frames: [THW]) -> MLXArray {
             var hiddenStates = patchEmbed(hiddenStates)
+            hiddenStates = postConvLayernorm(hiddenStates)
+
+            // Apply position embeddings
+            // For simplicity, use sequential position IDs for now
+            let seqLen = hiddenStates.dim(0)
+            let positionIds = MLXArray(0 ..< seqLen)
+            hiddenStates = hiddenStates + embeddings.positionEmbedding(positionIds)
+
             let rotaryPosEmbedding = rotaryPositionEmbedding(frames)
 
             // Compute cu_seqlens from frames
