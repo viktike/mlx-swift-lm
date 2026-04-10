@@ -167,6 +167,42 @@ private func gemma4EnsureFusedSDPA(
         queries: paddedQueries, keys: paddedKeys, values: paddedValues, scale: scale, mask: mask
     )[.ellipsis, ..<d]
 }
+
+private enum Gemma4SharedKVState {
+    case regular(keys: MLXArray, values: MLXArray)
+    case quantized(
+        keys: (MLXArray, MLXArray, MLXArray?),
+        values: (MLXArray, MLXArray, MLXArray?),
+        groupSize: Int,
+        bits: Int,
+        mode: QuantizationMode
+    )
+
+    var sequenceLength: Int {
+        switch self {
+        case .regular(let keys, _):
+            return keys.dim(2)
+        case .quantized(let keys, _, _, _, _):
+            return keys.0.dim(-2)
+        }
+    }
+}
+
+private func gemma4AdjustAttentionMask(
+    _ mask: MLXFast.ScaledDotProductAttentionMaskMode,
+    keyLength: Int
+) -> MLXFast.ScaledDotProductAttentionMaskMode {
+    switch mask {
+    case .array(let maskArray):
+        guard let maskLength = maskArray.shape.last, maskLength > keyLength else {
+            return mask
+        }
+        let start = maskLength - keyLength
+        return .array(maskArray[.ellipsis, start...])
+    case .arrays, .causal, .none:
+        return mask
+    }
+}
 // MARK: - Configuration
 
 public struct Gemma4TextConfiguration: Codable, Sendable {
@@ -622,41 +658,25 @@ private final class Gemma4TextAttention: Module {
 
     func callAsFunction(
         _ x: MLXArray, mask: MLXFast.ScaledDotProductAttentionMaskMode = .none,
-        cache: KVCache? = nil
-    ) -> MLXArray {
+        cache: KVCache? = nil,
+        sharedKV: Gemma4SharedKVState? = nil,
+        offset: Int? = nil
+    ) -> (MLXArray, Gemma4SharedKVState?, Int) {
         let (batch, length, _) = (x.dim(0), x.dim(1), x.dim(2))
 
         var queries = qProj(x).reshaped(batch, length, numHeads, headDim)
         queries = qNorm(queries)
 
-        let offset: Int
-        var keys: MLXArray
-        var values: MLXArray
+        let currentOffset: Int
+        let kvState: Gemma4SharedKVState?
 
-        if isKVSharedLayer, let cache {
-            let state = cache.state
-            if state.count >= 2 {
-                keys = state[0]
-                values = state[1]
-                offset = cache.offset
-            } else {
-                offset = cache.offset
-                keys = kProj(x).reshaped(batch, length, numKVHeads, headDim)
-                values =
-                    if useKEqV {
-                        keys
-                    } else {
-                        vProj!(x).reshaped(batch, length, numKVHeads, headDim)
-                    }
-                keys = kNorm(keys).transposed(0, 2, 1, 3)
-                values = vNorm(values).transposed(0, 2, 1, 3)
-                keys = rope(keys, offset: offset)
-                (keys, values) = cache.update(keys: keys, values: values)
-            }
+        if let sharedKV {
+            currentOffset = offset ?? 0
+            kvState = sharedKV
         } else {
-            offset = cache?.offset ?? 0
-            keys = kProj(x).reshaped(batch, length, numKVHeads, headDim)
-            values =
+            currentOffset = cache?.offset ?? 0
+            var keys = kProj(x).reshaped(batch, length, numKVHeads, headDim)
+            var values =
                 if useKEqV {
                     keys
                 } else {
@@ -664,33 +684,61 @@ private final class Gemma4TextAttention: Module {
                 }
             keys = kNorm(keys).transposed(0, 2, 1, 3)
             values = vNorm(values).transposed(0, 2, 1, 3)
-            keys = rope(keys, offset: offset)
-            if let cache {
-                (keys, values) = cache.update(keys: keys, values: values)
+            keys = rope(keys, offset: currentOffset)
+            if let quantizedCache = cache as? QuantizedKVCacheProtocol {
+                let (quantizedKeys, quantizedValues) = quantizedCache.updateQuantized(
+                    keys: keys, values: values)
+                kvState = .quantized(
+                    keys: quantizedKeys,
+                    values: quantizedValues,
+                    groupSize: quantizedCache.groupSize,
+                    bits: quantizedCache.bits,
+                    mode: quantizedCache.mode
+                )
+            } else {
+                if let cache {
+                    (keys, values) = cache.update(keys: keys, values: values)
+                }
+                kvState = .regular(keys: keys, values: values)
             }
         }
 
         queries = queries.transposed(0, 2, 1, 3)
-        queries = rope(queries, offset: offset)
+        queries = rope(queries, offset: currentOffset)
 
-        var localMask = mask
-        if case .array(let maskArray) = mask, maskArray.shape.last != keys.shape[keys.ndim - 2] {
-            let start = maskArray.shape.last! - keys.shape[keys.ndim - 2]
-            localMask = .array(maskArray[.ellipsis, start...])
+        guard let kvState else {
+            fatalError("Gemma4 attention expected a KV state")
         }
+        let localMask = gemma4AdjustAttentionMask(mask, keyLength: kvState.sequenceLength)
 
-        let output = attentionWithCacheUpdate(
-            queries: queries,
-            keys: keys,
-            values: values,
-            cache: nil,
-            scale: scale,
-            mask: localMask
+        let output: MLXArray =
+            switch kvState {
+            case .regular(let keys, let values):
+                MLXFast.scaledDotProductAttention(
+                    queries: queries,
+                    keys: keys,
+                    values: values,
+                    scale: scale,
+                    mask: localMask
+                )
+            case .quantized(let keys, let values, let groupSize, let bits, let mode):
+                quantizedScaledDotProductAttention(
+                    queries: queries,
+                    quantizedKeys: keys,
+                    quantizedValues: values,
+                    scale: scale,
+                    mask: localMask,
+                    groupSize: groupSize,
+                    bits: bits,
+                    mode: mode
+                )
+            }
+
+        return (
+            oProj(output.transposed(0, 2, 1, 3).reshaped(batch, length, -1)),
+            kvState,
+            currentOffset
         )
-        .transposed(0, 2, 1, 3)
-        .reshaped(batch, length, -1)
-
-        return oProj(output)
     }
 }
 
@@ -758,11 +806,15 @@ private final class Gemma4TextDecoderLayer: Module {
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode = .none,
         cache: KVCache? = nil,
-        perLayerInput: MLXArray? = nil
-    ) -> MLXArray {
+        perLayerInput: MLXArray? = nil,
+        sharedKV: Gemma4SharedKVState? = nil,
+        offset: Int? = nil
+    ) -> (MLXArray, Gemma4SharedKVState?, Int) {
         var residual = x
         var h = inputLayerNorm(x)
-        h = selfAttention(h, mask: mask, cache: cache)
+        let (attentionOutput, kvState, attentionOffset) = selfAttention(
+            h, mask: mask, cache: cache, sharedKV: sharedKV, offset: offset)
+        h = attentionOutput
         h = postAttentionLayerNorm(h)
         h = residual + h
 
@@ -803,7 +855,7 @@ private final class Gemma4TextDecoderLayer: Module {
             h = residual + gated
         }
 
-        return h * layerScalar
+        return (h * layerScalar, kvState, attentionOffset)
     }
 }
 
@@ -942,6 +994,7 @@ private final class Gemma4TextBackbone: Module {
         }
         let finalPerLayerInputs = projectPerLayerInputs(h0, perLayerInputs: processedPerLayerInputs)
 
+        let hasExplicitCache = cache != nil
         let localCache =
             cache ?? Array(repeating: nil as KVCache?, count: max(firstKVSharedLayerIdx, 1))
         let fullMask: MLXFast.ScaledDotProductAttentionMaskMode
@@ -962,9 +1015,16 @@ private final class Gemma4TextBackbone: Module {
         }
 
         var h = h0
+        var intermediates = [(kv: Gemma4SharedKVState?, offset: Int?)](
+            repeating: (nil, nil), count: config.hiddenLayers)
         for (idx, layer) in layers.enumerated() {
-            let cacheIdx = layerIdxToCacheIdx[idx]
-            let layerCache = cacheIdx < localCache.count ? localCache[cacheIdx] : nil
+            let sourceIdx = layerIdxToCacheIdx[idx]
+            let layerCache: KVCache? =
+                if idx < firstKVSharedLayerIdx, sourceIdx < localCache.count {
+                    localCache[sourceIdx]
+                } else {
+                    nil
+                }
             let layerMask =
                 if layer.layerType == "full_attention" {
                     fullMask
@@ -977,7 +1037,18 @@ private final class Gemma4TextBackbone: Module {
                 } else {
                     nil
                 }
-            h = layer(h, mask: layerMask, cache: layerCache, perLayerInput: layerInput)
+            let (output, kvState, attentionOffset) = layer(
+                h,
+                mask: layerMask,
+                cache: layerCache,
+                perLayerInput: layerInput,
+                sharedKV: hasExplicitCache && idx >= firstKVSharedLayerIdx
+                    ? intermediates[sourceIdx].kv : nil,
+                offset: hasExplicitCache && idx >= firstKVSharedLayerIdx
+                    ? intermediates[sourceIdx].offset : nil
+            )
+            h = output
+            intermediates[idx] = (kvState, attentionOffset)
         }
         return norm(h)
     }
@@ -1067,6 +1138,30 @@ private final class Gemma4TextLanguageModel: Module, KVCacheDimensionProvider {
             {
                 let rest = String(newKey.dropFirst("language_model.".count))
                 newKey = "language_model.model.\(rest)"
+            }
+
+            if newKey.hasSuffix(".experts.down_proj") {
+                newKey = newKey.replacingOccurrences(
+                    of: ".experts.down_proj",
+                    with: ".experts.switch_glu.down_proj.weight"
+                )
+            }
+
+            if newKey.hasSuffix(".experts.gate_up_proj") {
+                let mid = value.dim(-2) / 2
+                sanitized[
+                    newKey.replacingOccurrences(
+                        of: ".experts.gate_up_proj",
+                        with: ".experts.switch_glu.gate_proj.weight"
+                    )
+                ] = value[.ellipsis, ..<mid, 0...]
+                sanitized[
+                    newKey.replacingOccurrences(
+                        of: ".experts.gate_up_proj",
+                        with: ".experts.switch_glu.up_proj.weight"
+                    )
+                ] = value[.ellipsis, mid..., 0...]
+                continue
             }
 
             sanitized[newKey] = value
@@ -1379,9 +1474,15 @@ private final class Gemma4VisionPooler: Module {
         validCount: Int,
         outputLength: Int? = nil
     ) -> MLXArray {
+        let paddingPositions = patchPositions[0..., 0..., 0] .< 0
+        let pooledHiddenStates = MLX.where(
+            expandedDimensions(paddingPositions, axis: -1),
+            MLXArray(0.0, dtype: hiddenStates.dtype),
+            hiddenStates
+        )
         let length = outputLength ?? defaultOutputLength
-        if hiddenStates.dim(1) <= length {
-            return hiddenStates * MLXArray(rootHiddenSize, dtype: hiddenStates.dtype)
+        if pooledHiddenStates.dim(1) <= length {
+            return pooledHiddenStates * MLXArray(rootHiddenSize, dtype: pooledHiddenStates.dtype)
         }
 
         let actualPositions = patchPositions[0, ..<validCount]
@@ -1398,9 +1499,11 @@ private final class Gemma4VisionPooler: Module {
         let weights =
             gemma4OneHot(flatKernel, numClasses: pooledLength).asType(.float32)
             / Float(divisor)
-        let output = einsum("lL,bld->bLd", weights, hiddenStates[0..., ..<validCount, 0...])
-            .asType(hiddenStates.dtype)
-        return output * MLXArray(rootHiddenSize, dtype: hiddenStates.dtype)
+        let output = einsum(
+            "lL,bld->bLd", weights, pooledHiddenStates[0..., ..<validCount, 0...]
+        )
+        .asType(pooledHiddenStates.dtype)
+        return output * MLXArray(rootHiddenSize, dtype: pooledHiddenStates.dtype)
     }
 }
 
@@ -1524,17 +1627,17 @@ private final class Gemma4VisionModel: Module {
 
 private final class Gemma4MultimodalEmbedder: Module, UnaryLayer {
     @ModuleInfo(key: "embedding_projection") var embeddingProjection: Linear
-    @ModuleInfo(key: "embedding_post_projection_norm") var embeddingPostProjectionNorm:
+    @ModuleInfo(key: "embedding_pre_projection_norm") var embeddingPreProjectionNorm:
         Gemma4RMSNormNoScale
 
     init(embeddingDim: Int, textHiddenSize: Int, eps: Float) {
         self._embeddingProjection.wrappedValue = Linear(embeddingDim, textHiddenSize, bias: false)
-        self._embeddingPostProjectionNorm.wrappedValue = Gemma4RMSNormNoScale(eps: eps)
+        self._embeddingPreProjectionNorm.wrappedValue = Gemma4RMSNormNoScale(eps: eps)
         super.init()
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        embeddingPostProjectionNorm(embeddingProjection(x))
+        embeddingProjection(embeddingPreProjectionNorm(x))
     }
 }
 
@@ -1631,8 +1734,7 @@ public final class Gemma4: Module, VLMModel, KVCacheDimensionProvider {
                 nil,
                 cache: convertedCache,
                 inputsEmbeds: inputsEmbeds,
-                perLayerInputs: perLayerInputs,
-                mask: .causal
+                perLayerInputs: perLayerInputs
             )
             return .logits(result)
         } else {
