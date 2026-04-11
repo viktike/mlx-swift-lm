@@ -22,7 +22,7 @@ extension LLMModel {
     public func prepare(_ input: LMInput, cache: [KVCache], windowSize: Int?) throws
         -> PrepareResult
     {
-        let prefillStepSize = windowSize ?? 512
+        let prefillStepSize = windowSize ?? 1024
         var y = input.text
 
         // Prepare the prompt in chunks if larger than the prefill size
